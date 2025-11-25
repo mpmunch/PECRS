@@ -18,7 +18,7 @@ from utils import seed_everything
 
 parser = argparse.ArgumentParser()
 
-root = "/data/mathieu/efficient_unified_crs/" # todo: change to your home directory
+root = os.getcwd() + "/"
 
 # general
 parser.add_argument("--seed", type=int, default=42)

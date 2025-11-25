@@ -24,7 +24,9 @@ from engine import training_loop, validate
 
 parser = argparse.ArgumentParser()
 
-root = "/data/mathieu/efficient_unified_crs/" # todo: change to your home directory
+# root = "/data/mathieu/efficient_unified_crs/" # todo: change to auto-detect current directory
+root = os.getcwd() + "/"
+#root = "/home/mpmunch/Documents/efficient_unified_crs/" #
 
 # general
 parser.add_argument("--seed", type=int, default=42)
@@ -39,7 +41,7 @@ parser.add_argument("--root", type=str, default=root)
 parser.add_argument("--dataset_name", type=str, default="REDIAL", choices=["REDIAL", "INSPIRED"])
 
 # model
-parser.add_argument("--decoder", type=str, default="../hf_models/gpt2-small") # todo: place the HuggingFace checkpoint there
+parser.add_argument("--decoder", type=str, default="./hf_models/gpt2-small") # todo: place the HuggingFace checkpoint there
 parser.add_argument("--rec_token", type=str, default="[REC]")
 parser.add_argument("--rec_end_token", type=str, default="[REC_END]")
 parser.add_argument("--sep_token", type=str, default="[SEP]")
