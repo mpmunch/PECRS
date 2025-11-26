@@ -1,12 +1,14 @@
 # Source code for the PECRS model (EACL 2024)
 # Parts of the code are taken from the MESE source code: https://github.com/by2299/mese
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import argparse
 import torch
 import numpy as np
 import tqdm
 import pickle
-import os
+
 import logging
 from accelerate.logging import get_logger
 from torch.utils.data import DataLoader
@@ -269,9 +271,9 @@ def main(args):
     # datasets and data loaders
     data_collator = MovieRecDataCollator(tokenizer=tokenizer)
     train_dataset = MovieRecDataset("train", torch.load(args.train_path), tokenizer, logger, args)
-    train_dataloader = DataLoader(dataset=train_dataset, shuffle=True, batch_size=args.train_bs, collate_fn=data_collator)
+    train_dataloader = DataLoader(dataset=train_dataset, shuffle=True, batch_size=args.train_bs, collate_fn=data_collator, num_workers=8)
     test_dataset = MovieRecDataset("test", torch.load(args.test_path), tokenizer, logger, args)
-    test_dataloader = DataLoader(dataset=test_dataset, shuffle=False, batch_size=args.eval_bs, collate_fn=data_collator)
+    test_dataloader = DataLoader(dataset=test_dataset, shuffle=False, batch_size=args.eval_bs, collate_fn=data_collator, num_workers=8)
 
     # model
     model = PECRSModel(tokenizer, dec_model, accelerator, args)
