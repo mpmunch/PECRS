@@ -22,7 +22,7 @@ from dataset import MovieRecDataset, MovieRecDataCollator
 from model_utils import GPT2InductiveAttentionHeadModel
 from model import PECRSModel
 from engine import training_loop, validate
-
+from safetensors.torch import load_file as safe_load_file
 
 parser = argparse.ArgumentParser()
 
@@ -289,10 +289,25 @@ def main(args):
     # parameters
     count_parameters(logger, tokenizer, dec_model, model, param_optimizer, args)
 
-    # load checkpoint
-    if args.mode != "train":
-        loaded = torch.load(args.load_model_path)
-        accelerator.unwrap_model(model).load_state_dict(loaded)
+    # load checkpoint (Full State Resume)
+    if args.load_model_path and os.path.exists(args.load_model_path):
+        # Case 1: It's a Folder (Resume full training state)
+        if os.path.isdir(args.load_model_path):
+            logger.info(f"Resuming full training state from folder: {args.load_model_path}...")
+            accelerator.load_state(args.load_model_path)
+            
+        # Case 2: It's a Safetensors File (Load weights only)
+        elif args.load_model_path.endswith(".safetensors"):
+            logger.info(f"Loading weights from safetensors: {args.load_model_path}...")
+            loaded = safe_load_file(args.load_model_path)
+            accelerator.unwrap_model(model).load_state_dict(loaded)
+            
+        # Case 3: It's a PyTorch File (.pt/.bin) (Load weights only)
+        else:
+            logger.info(f"Loading weights from PyTorch file: {args.load_model_path}...")
+            loaded = torch.load(args.load_model_path)
+            accelerator.unwrap_model(model).load_state_dict(loaded)
+
         if accelerator.is_main_process:
             logger.info("\n")
             logger.info(f"Loaded model weights! {args.load_model_path}")
