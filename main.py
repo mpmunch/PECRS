@@ -289,12 +289,24 @@ def main(args):
     # parameters
     count_parameters(logger, tokenizer, dec_model, model, param_optimizer, args)
 
+    args.start_epoch = 1
+
+
     # load checkpoint (Full State Resume)
     if args.load_model_path and os.path.exists(args.load_model_path):
         # Case 1: It's a Folder (Resume full training state)
         if os.path.isdir(args.load_model_path):
             logger.info(f"Resuming full training state from folder: {args.load_model_path}...")
             accelerator.load_state(args.load_model_path)
+
+            try:
+                # Assumes folder name ends with "..._epoch_X"
+                folder_name = args.load_model_path.rstrip('/')
+                last_epoch = int(folder_name.split('_')[-1])
+                args.start_epoch = last_epoch + 1
+                logger.info(f"Detected checkpoint from Epoch {last_epoch}. Resuming training at Epoch {args.start_epoch}.")
+            except ValueError:
+                logger.info(f"Could not deduce epoch from folder name. Defaulting to Epoch {args.start_epoch}.")
             
         # Case 2: It's a Safetensors File (Load weights only)
         elif args.load_model_path.endswith(".safetensors"):

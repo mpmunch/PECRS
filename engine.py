@@ -19,7 +19,7 @@ def training_loop(train_dataloader, test_dataloader, tokenizer, model, optimizer
         model.train()
 
     ppls, all_loss_ppl, all_loss_recall, all_loss_rerank = [], [], [], []
-    for ep in range(1, args.num_epochs + 1):
+    for ep in range(args.start_epoch, args.num_epochs + 1):
         if args.previous_recommended_ids_negative:
             args.previous_count = []
         # training round of the epoch
