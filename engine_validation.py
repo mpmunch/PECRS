@@ -23,38 +23,39 @@ def validate(ep, dataloader, tokenizer, model, criterions, logger, accelerator, 
     recall_losses, n_recall_success, recall_top100, recall_top300, recall_top500 = [], 0, [], [], [] # recall
     rerank_losses, total_rerank_top1, rerank_top1, rerank_top10, rerank_top50 = [], [], [], [], [] # re-ranking
     gt_ids, gt_ranks, total_predicted_ids, all_predicted_ids = [], [], [], [] # final recommendation
-    for batch in tqdm.tqdm(dataloader, disable=not accelerator.is_main_process):
-        metadata, response, recall, rerank, recommendation = validate_one_iteration(
-            batch, tokenizer, model, criterions, accelerator, args)
-        (turn_nums_batch, n_points_batch, n_rec_batch) = metadata
-        (ppl_losses_batch, ppls_batch) = response
-        (recall_losses_batch, n_recall_success_batch, recall_top100_batch, recall_top300_batch, recall_top500_batch) = recall
-        (rerank_losses_batch, total_rerank_top1_batch, rerank_top1_batch, rerank_top10_batch, rerank_top50_batch) = rerank
-        (gt_ids_batch, gt_ranks_batch, total_predicted_ids_batch) = recommendation
+    with torch.no_grad():
+        for batch in tqdm.tqdm(dataloader, disable=not accelerator.is_main_process):
+            metadata, response, recall, rerank, recommendation = validate_one_iteration(
+                batch, tokenizer, model, criterions, accelerator, args)
+            (turn_nums_batch, n_points_batch, n_rec_batch) = metadata
+            (ppl_losses_batch, ppls_batch) = response
+            (recall_losses_batch, n_recall_success_batch, recall_top100_batch, recall_top300_batch, recall_top500_batch) = recall
+            (rerank_losses_batch, total_rerank_top1_batch, rerank_top1_batch, rerank_top10_batch, rerank_top50_batch) = rerank
+            (gt_ids_batch, gt_ranks_batch, total_predicted_ids_batch) = recommendation
 
-        turn_nums += turn_nums_batch
-        n_points += n_points_batch
-        n_rec += n_rec_batch
+            turn_nums += turn_nums_batch
+            n_points += n_points_batch
+            n_rec += n_rec_batch
 
-        ppl_losses += ppl_losses_batch
-        ppls += ppls_batch
+            ppl_losses += ppl_losses_batch
+            ppls += ppls_batch
 
-        recall_losses += recall_losses_batch
-        n_recall_success += n_recall_success_batch
-        recall_top100 += recall_top100_batch
-        recall_top300 += recall_top300_batch
-        recall_top500 += recall_top500_batch
+            recall_losses += recall_losses_batch
+            n_recall_success += n_recall_success_batch
+            recall_top100 += recall_top100_batch
+            recall_top300 += recall_top300_batch
+            recall_top500 += recall_top500_batch
 
-        rerank_losses += rerank_losses_batch
-        total_rerank_top1 += total_rerank_top1_batch
-        rerank_top1 += rerank_top1_batch
-        rerank_top10 += rerank_top10_batch
-        rerank_top50 += rerank_top50_batch
+            rerank_losses += rerank_losses_batch
+            total_rerank_top1 += total_rerank_top1_batch
+            rerank_top1 += rerank_top1_batch
+            rerank_top10 += rerank_top10_batch
+            rerank_top50 += rerank_top50_batch
 
-        gt_ids += gt_ids_batch
-        gt_ranks += gt_ranks_batch
-        total_predicted_ids += total_predicted_ids_batch
-        all_predicted_ids.append(total_predicted_ids_batch)
+            gt_ids += gt_ids_batch
+            gt_ranks += gt_ranks_batch
+            total_predicted_ids += total_predicted_ids_batch
+            all_predicted_ids.append(total_predicted_ids_batch)
 
     turn_nums = np.array(turn_nums)
     ppl_losses, ppls = np.array(ppl_losses), np.array(ppls)

@@ -5,7 +5,7 @@ import time
 import copy
 import gc
 from engine_validation import validate
-from safetensors.torch import save_file as safe_save_file
+from safetensors.torch import save_file
 
 
 # overall training loop, on the entire dataset
@@ -87,11 +87,6 @@ def training_loop(train_dataloader, test_dataloader, tokenizer, model, optimizer
             accelerator.save_state(output_dir=save_folder)
             logger.info(f"Saved full training state to {save_folder}")
 
-            save_path_st = args.model_saved_path + str(ep) + ".safetensors"
-            model_to_save = accelerator.unwrap_model(model)
-            state_dict = model_to_save.state_dict()
-            safe_save_file(state_dict, save_path_st)
-            logger.info(f"Saved model weights to {save_path_st}")
 
 # training on 1 batch
 def train_one_iteration(batch, tokenizer, model, criterions, accelerator, args):
