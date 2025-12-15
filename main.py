@@ -291,45 +291,6 @@ def main(args):
 
     args.start_epoch = 1
 
-
-    # load checkpoint (Full State Resume)
-    if args.load_model_path and os.path.exists(args.load_model_path):
-        # Case 1: It's a Folder (Resume full training state)
-        if os.path.isdir(args.load_model_path):
-            logger.info(f"Resuming full training state from folder: {args.load_model_path}...")
-            accelerator.load_state(args.load_model_path)
-
-            try:
-                # Assumes folder name ends with "..._epoch_X"
-                folder_name = args.load_model_path.rstrip('/')
-                last_epoch = int(folder_name.split('_')[-1])
-                args.start_epoch = last_epoch + 1
-                logger.info(f"Detected checkpoint from Epoch {last_epoch}. Resuming training at Epoch {args.start_epoch}.")
-            except ValueError:
-                logger.info(f"Could not deduce epoch from folder name. Defaulting to Epoch {args.start_epoch}.")
-            
-        # Case 2: It's a Safetensors File (Load weights only)
-        elif args.load_model_path.endswith(".safetensors"):
-            logger.info(f"Loading weights from safetensors: {args.load_model_path}...")
-            loaded = safe_load_file(args.load_model_path)
-            accelerator.unwrap_model(model).load_state_dict(loaded)
-            
-        # Case 3: It's a PyTorch File (.pt/.bin) (Load weights only)
-        else:
-            logger.info(f"Loading weights from PyTorch file: {args.load_model_path}...")
-            loaded = torch.load(args.load_model_path)
-            accelerator.unwrap_model(model).load_state_dict(loaded)
-
-        if accelerator.is_main_process:
-            logger.info("\n")
-            logger.info(f"Loaded model weights! {args.load_model_path}")
-        if args.check_learned_weights:
-            block_size = 32
-            n_blocks = int(1024 / block_size)
-            for n in range(n_blocks):
-                mean_weight = accelerator.unwrap_model(model).state_dict()["weights"][(n*block_size):((n+1)*block_size)].mean()
-                logger.info(f"Block of features {n}, mean weight: {mean_weight:.4f}")
-
     # loss functions
     criterion_language = SequenceCrossEntropyLoss()
     criterion_recall = torch.nn.CrossEntropyLoss()
@@ -361,12 +322,97 @@ def main(args):
             train_dataloader, test_dataloader, model, optimizer, scheduler)
         model = model.to(accelerator.device)
 
+        # load checkpoint (Full State Resume) - AFTER accelerator.prepare()
+        if args.load_model_path and os.path.exists(args.load_model_path):
+            # Case 1: It's a Folder (Resume full training state)
+            if os.path.isdir(args.load_model_path):
+                logger.info(f"Resuming full training state from folder: {args.load_model_path}...")
+                accelerator.load_state(args.load_model_path)
+
+                try:
+                    # Assumes folder name ends with "..._epoch_X"
+                    folder_name = args.load_model_path.rstrip('/')
+                    last_epoch = int(folder_name.split('_')[-1])
+                    args.start_epoch = last_epoch + 1
+                    logger.info(f"Detected checkpoint from Epoch {last_epoch}. Resuming training at Epoch {args.start_epoch}.")
+                except ValueError:
+                    logger.info(f"Could not deduce epoch from folder name. Defaulting to Epoch {args.start_epoch}.")
+                
+            # Case 2: It's a Safetensors File (Load weights only)
+            elif args.load_model_path.endswith(".safetensors"):
+                logger.info(f"Loading weights from safetensors: {args.load_model_path}...")
+                loaded = safe_load_file(args.load_model_path)
+                accelerator.unwrap_model(model).load_state_dict(loaded)
+                
+            # Case 3: It's a PyTorch File (.pt/.bin) (Load weights only)
+            else:
+                logger.info(f"Loading weights from PyTorch file: {args.load_model_path}...")
+                loaded = torch.load(args.load_model_path)
+                accelerator.unwrap_model(model).load_state_dict(loaded)
+
+            if accelerator.is_main_process:
+                logger.info("\n")
+                logger.info(f"Loaded model weights! {args.load_model_path}")
+            if args.check_learned_weights:
+                block_size = 32
+                n_blocks = int(1024 / block_size)
+                for n in range(n_blocks):
+                    mean_weight = accelerator.unwrap_model(model).state_dict()["weights"][(n*block_size):((n+1)*block_size)].mean()
+                    logger.info(f"Block of features {n}, mean weight: {mean_weight:.4f}")
+
         logger.info("Single-GPU training...")
         training_loop(train_dataloader, test_dataloader, tokenizer, model, optimizer, scheduler, criterions, logger, accelerator, args)
 
     else:
         model, test_dataloader = accelerator.prepare(model, test_dataloader)
         model = model.to(accelerator.device)
+
+        # load checkpoint (Full State Resume) - AFTER accelerator.prepare()
+        if args.load_model_path and os.path.exists(args.load_model_path):
+            # Case 1: It's a Folder - load only model weights from pytorch_model.bin
+            if os.path.isdir(args.load_model_path):
+                logger.info(f"Loading model weights from checkpoint folder: {args.load_model_path}...")
+                # Look for pytorch_model.bin or model.safetensors in the folder
+                import glob
+                pt_files = glob.glob(os.path.join(args.load_model_path, "pytorch_model*.bin"))
+                safetensor_files = glob.glob(os.path.join(args.load_model_path, "model*.safetensors"))
+                
+                if safetensor_files:
+                    checkpoint_file = safetensor_files[0]
+                    logger.info(f"Loading from {checkpoint_file}...")
+                    loaded = safe_load_file(checkpoint_file)
+                    accelerator.unwrap_model(model).load_state_dict(loaded, strict=False)
+                elif pt_files:
+                    checkpoint_file = pt_files[0]
+                    logger.info(f"Loading from {checkpoint_file}...")
+                    loaded = torch.load(checkpoint_file)
+                    accelerator.unwrap_model(model).load_state_dict(loaded, strict=False)
+                else:
+                    raise FileNotFoundError(f"No pytorch_model.bin or model.safetensors found in {args.load_model_path}")
+                
+            # Case 2: It's a Safetensors File (Load weights only)
+            elif args.load_model_path.endswith(".safetensors"):
+                logger.info(f"Loading weights from safetensors: {args.load_model_path}...")
+                loaded = safe_load_file(args.load_model_path)
+                accelerator.unwrap_model(model).load_state_dict(loaded, strict=False)
+                
+            # Case 3: It's a PyTorch File (.pt/.bin) (Load weights only)
+            else:
+                logger.info(f"Loading weights from PyTorch file: {args.load_model_path}...")
+                loaded = torch.load(args.load_model_path)
+                accelerator.unwrap_model(model).load_state_dict(loaded, strict=False)
+
+            if accelerator.is_main_process:
+                logger.info("\n")
+                logger.info(f"Loaded model weights! {args.load_model_path}")
+            if args.check_learned_weights:
+                block_size = 32
+                n_blocks = int(1024 / block_size)
+                for n in range(n_blocks):
+                    mean_weight = accelerator.unwrap_model(model).state_dict()["weights"][(n*block_size):((n+1)*block_size)].mean()
+                    logger.info(f"Block of features {n}, mean weight: {mean_weight:.4f}")
+
+        model.eval()
 
         logger.info("Single-GPU inference...")
         logger.info(accelerator.device)
