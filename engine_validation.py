@@ -20,7 +20,7 @@ def validate(ep, dataloader, tokenizer, model, criterions, logger, accelerator, 
     # collect all predictions
     turn_nums, n_points, n_rec = [], 0, 0 # metadata
     ppl_losses, ppls = [], [] # response
-    recall_losses, n_recall_success, recall_top10, recall_top30, recall_top50 = [], 0, [], [], [] # recall
+    recall_losses, n_recall_success, recall_top1, recall_top10, recall_top50 = [], 0, [], [], [] # recall
     rerank_losses, total_rerank_top1, rerank_top1, rerank_top10, rerank_top50 = [], [], [], [], [] # re-ranking
     gt_ids, gt_ranks, total_predicted_ids, all_predicted_ids = [], [], [], [] # final recommendation
     with torch.no_grad():
@@ -29,7 +29,7 @@ def validate(ep, dataloader, tokenizer, model, criterions, logger, accelerator, 
                 batch, tokenizer, model, criterions, accelerator, args)
             (turn_nums_batch, n_points_batch, n_rec_batch) = metadata
             (ppl_losses_batch, ppls_batch) = response
-            (recall_losses_batch, n_recall_success_batch, recall_top10_batch, recall_top30_batch, recall_top50_batch) = recall
+            (recall_losses_batch, n_recall_success_batch, recall_top1_batch, recall_top10_batch, recall_top50_batch) = recall
             (rerank_losses_batch, total_rerank_top1_batch, rerank_top1_batch, rerank_top10_batch, rerank_top50_batch) = rerank
             (gt_ids_batch, gt_ranks_batch, total_predicted_ids_batch) = recommendation
 
@@ -42,8 +42,8 @@ def validate(ep, dataloader, tokenizer, model, criterions, logger, accelerator, 
 
             recall_losses += recall_losses_batch
             n_recall_success += n_recall_success_batch
+            recall_top1 += recall_top1_batch
             recall_top10 += recall_top10_batch
-            recall_top30 += recall_top30_batch
             recall_top50 += recall_top50_batch
 
             rerank_losses += rerank_losses_batch
@@ -60,7 +60,7 @@ def validate(ep, dataloader, tokenizer, model, criterions, logger, accelerator, 
     turn_nums = np.array(turn_nums)
     ppl_losses, ppls = np.array(ppl_losses), np.array(ppls)
     gt_ids, total_predicted_ids = np.array(gt_ids), np.array(total_predicted_ids)
-    recall_losses, recall_top10, recall_top30, recall_top50 = np.array(recall_losses), np.array(recall_top10), np.array(recall_top30), np.array(recall_top50)
+    recall_losses, recall_top1, recall_top10, recall_top50 = np.array(recall_losses), np.array(recall_top1), np.array(recall_top10), np.array(recall_top50)
     rerank_losses, rerank_top1, rerank_top10, rerank_top50 = np.array(rerank_losses), np.array(rerank_top1), np.array(rerank_top10), np.array(rerank_top50)
 
     logger.info(f"# Data points: {n_points}, # with rec: {n_rec}, # recall successful: {n_recall_success}")
@@ -124,11 +124,11 @@ def validate(ep, dataloader, tokenizer, model, criterions, logger, accelerator, 
     logger.info(f"Unique (GT): {gt_ids_unique}, Unique (predicted): {predicted_ids_unique}")
     recall_ratio = 100 * n_recall_success / n_rec
     logger.info(f"Recall is successful (gt_id is in recommended ids): {recall_ratio:.4f}")
+    rc1 = 100 * np.mean(recall_top1)
     rc10 = 100 * np.mean(recall_top10)
-    rc30 = 100 * np.mean(recall_top30)
     rc50 = 100 * np.mean(recall_top50)
-    mean_rc = (rc10 + rc30 + rc50) / 3
-    logger.info(f"mean recall (%): {mean_rc:.4f}, recall top10 (%): {rc10:.4f}, top30 (%): {rc30:.4f}, top50( %): {rc50: .4f}")
+    mean_rc = (rc1 + rc10 + rc50) / 3
+    logger.info(f"mean recall (%): {mean_rc:.4f}, recall top1 (%): {rc1:.4f}, top10 (%): {rc10:.4f}, top50( %): {rc50:.4f}")
     rr1 = 100 * np.mean(rerank_top1)
     rr10 = 100 * np.mean(rerank_top10)
     rr50 = 100 * np.mean(rerank_top50)
@@ -149,7 +149,7 @@ def validate_one_iteration(batch, tokenizer, model, criterions, accelerator, arg
     # metrics to track
     turn_nums, n_points, n_rec = [], 0, 0 # metadata
     ppl_losses, ppls = [], [] # response
-    recall_losses, n_recall_success, recall_top10, recall_top30, recall_top50 = [], 0, [], [], [] # recall
+    recall_losses, n_recall_success, recall_top1, recall_top10, recall_top50 = [], 0, [], [], [] # recall
     rerank_losses, total_rerank_top1, rerank_top1, rerank_top10, rerank_top50 = [], [0]*(len(no_rec_idx)+len(has_rec_idx)), [], [], []  # re-ranking
     gt_ids, gt_ranks, total_predicted_ids = [], [], [-1]*(len(no_rec_idx)+len(has_rec_idx))  # recommendation
 
@@ -247,8 +247,8 @@ def validate_one_iteration(batch, tokenizer, model, criterions, accelerator, arg
                 gt_ranks.append(recalled_ids[i].index(recommended_id))
             else:
                 gt_ranks.append(len(recalled_ids) + 1)
+            recall_top1.append(int(recommended_id in recalled_ids[i][:1]))
             recall_top10.append(int(recommended_id in recalled_ids[i][:10]))
-            recall_top30.append(int(recommended_id in recalled_ids[i][:30]))
             recall_top50.append(int(recommended_id in recalled_ids[i][:50]))
             turn_nums.append(batch["turn_nums"][has_rec_idx[i]])
 
@@ -294,7 +294,7 @@ def validate_one_iteration(batch, tokenizer, model, criterions, accelerator, arg
 
     metadata = (turn_nums, n_points, n_rec)
     response = (ppl_losses, ppls)
-    recall = (recall_losses, n_recall_success, recall_top10, recall_top30, recall_top50)
+    recall = (recall_losses, n_recall_success, recall_top1, recall_top10, recall_top50)
     rerank = (rerank_losses, total_rerank_top1, rerank_top1, rerank_top10, rerank_top50)
     recommendation = (gt_ids, gt_ranks, total_predicted_ids)
 
