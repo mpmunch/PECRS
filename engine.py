@@ -77,15 +77,16 @@ def training_loop(train_dataloader, test_dataloader, tokenizer, model, optimizer
             previous_count = np.mean(args.previous_count)
             logger.info(f"Added {previous_count:.4f} hard negatives on average through previously mentioned movies")
             args.previous_count = []
-        # validation round of the epoch
-        if args.validate:
-            validate(ep, test_dataloader, tokenizer, model, criterions, logger, accelerator, args)
-            model.train()
+        # save checkpoint BEFORE validation (so we don't lose progress if validation times out)
         if args.save:
             # Save to a FOLDER named "checkpoint_X" instead of a file
             save_folder = args.model_saved_path + f"checkpoint_epoch_{ep}" 
             accelerator.save_state(output_dir=save_folder)
             logger.info(f"Saved full training state to {save_folder}")
+        # validation round of the epoch
+        if args.validate:
+            validate(ep, test_dataloader, tokenizer, model, criterions, logger, accelerator, args)
+            model.train()
 
 
 # training on 1 batch
