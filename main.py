@@ -324,10 +324,10 @@ def main(args):
 
         # load checkpoint (Full State Resume) - AFTER accelerator.prepare()
         if args.load_model_path and os.path.exists(args.load_model_path):
-            # Case 1: It's a Folder (Resume full training state via accelerator.load_state)
+            # Case 1: It's a Folder (Resume full training state)
             if os.path.isdir(args.load_model_path):
                 logger.info(f"Resuming full training state from folder: {args.load_model_path}...")
-                accelerator.load_state(args.load_model_path)  # strict=True (default) to catch errors
+                accelerator.load_state(args.load_model_path)
 
                 try:
                     # Assumes folder name ends with "..._epoch_X"
@@ -367,9 +367,9 @@ def main(args):
         model, test_dataloader = accelerator.prepare(model, test_dataloader)
         model = model.to(accelerator.device)
 
-        # load checkpoint (Full State Resume) - AFTER accelerator.prepare()
+        # load checkpoint - AFTER accelerator.prepare()
         if args.load_model_path and os.path.exists(args.load_model_path):
-            # Case 1: It's a Folder - load only model weights from pytorch_model.bin
+            # Case 1: It's a Folder - load only model weights (no optimizer/scheduler state needed for eval)
             if os.path.isdir(args.load_model_path):
                 logger.info(f"Loading model weights from checkpoint folder: {args.load_model_path}...")
                 # Look for pytorch_model.bin or model.safetensors in the folder
@@ -381,12 +381,12 @@ def main(args):
                     checkpoint_file = safetensor_files[0]
                     logger.info(f"Loading from {checkpoint_file}...")
                     loaded = safe_load_file(checkpoint_file)
-                    accelerator.unwrap_model(model).load_state_dict(loaded, strict=False)
+                    accelerator.unwrap_model(model).load_state_dict(loaded)
                 elif pt_files:
                     checkpoint_file = pt_files[0]
                     logger.info(f"Loading from {checkpoint_file}...")
                     loaded = torch.load(checkpoint_file)
-                    accelerator.unwrap_model(model).load_state_dict(loaded, strict=False)
+                    accelerator.unwrap_model(model).load_state_dict(loaded)
                 else:
                     raise FileNotFoundError(f"No pytorch_model.bin or model.safetensors found in {args.load_model_path}")
                 
@@ -394,13 +394,13 @@ def main(args):
             elif args.load_model_path.endswith(".safetensors"):
                 logger.info(f"Loading weights from safetensors: {args.load_model_path}...")
                 loaded = safe_load_file(args.load_model_path)
-                accelerator.unwrap_model(model).load_state_dict(loaded, strict=False)
+                accelerator.unwrap_model(model).load_state_dict(loaded)
                 
             # Case 3: It's a PyTorch File (.pt/.bin) (Load weights only)
             else:
                 logger.info(f"Loading weights from PyTorch file: {args.load_model_path}...")
                 loaded = torch.load(args.load_model_path)
-                accelerator.unwrap_model(model).load_state_dict(loaded, strict=False)
+                accelerator.unwrap_model(model).load_state_dict(loaded)
 
             if accelerator.is_main_process:
                 logger.info("\n")
