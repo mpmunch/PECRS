@@ -324,10 +324,10 @@ def main(args):
 
         # load checkpoint (Full State Resume) - AFTER accelerator.prepare()
         if args.load_model_path and os.path.exists(args.load_model_path):
-            # Case 1: It's a Folder (Resume full training state)
+            # Case 1: It's a Folder (Resume full training state via accelerator.load_state)
             if os.path.isdir(args.load_model_path):
                 logger.info(f"Resuming full training state from folder: {args.load_model_path}...")
-                accelerator.load_state(args.load_model_path)
+                accelerator.load_state(args.load_model_path)  # strict=True (default) to catch errors
 
                 try:
                     # Assumes folder name ends with "..._epoch_X"

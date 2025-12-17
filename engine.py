@@ -97,8 +97,8 @@ def train_one_iteration(batch, tokenizer, model, criterions, accelerator, args):
     no_rec_idx = [i for i in range(len(batch["targets"])) if batch["targets"][i] == -1]
     has_rec_idx = [i for i in range(len(batch["targets"])) if batch["targets"][i] != -1]
 
-    # --- START OPTIMIZED EMBEDDING LOOKUP ---
-    inputs = batch["context_with_utterances"] # Shape: (Batch, Seq_Len)
+    # --- OPTIMIZED EMBEDDING LOOKUP ---
+    inputs = batch["context_with_utterances"]  # Shape: (Batch, Seq_Len)
     vocab_size = len(tokenizer)
     
     # 1. Identify where the movie tokens are
@@ -136,10 +136,10 @@ def train_one_iteration(batch, tokenizer, model, criterions, accelerator, args):
     embeds_no_rec = [embeds[x] for x in no_rec_idx]
     embeds_has_rec = [embeds[x] for x in has_rec_idx]
 
-    # Initialize total loss accumulator
-    total_loss = 0.0
+    # Check if we need to retain graph (both paths will backward through shared embeddings)
+    needs_retain_graph = len(no_rec_idx) > 0 and len(has_rec_idx) > 0
 
-    # data points without recommendation
+    # data points without recommendation (just response generation aka language modeling)
     if len(no_rec_idx) > 0:
         with accelerator.autocast():
             language_targets = batch["context_with_utterances"][no_rec_idx][:, 1:].contiguous()
@@ -155,12 +155,11 @@ def train_one_iteration(batch, tokenizer, model, criterions, accelerator, args):
             perplexity = np.exp(min(300, torch.nan_to_num(loss_ppl).item()))
             ppl_history.append(perplexity)
             all_loss_ppl.append(loss_ppl.item())
-            
-            # Accumulate scaled loss instead of backwarding immediately
-            total_loss += args.language_loss_train_coeff * loss_ppl
+            loss_ppl = args.language_loss_train_coeff * loss_ppl
+            accelerator.backward(loss_ppl, retain_graph=needs_retain_graph)
 
             del loss_ppl, language_logits, language_targets
-            # gc.collect() # Optional: removing frequent gc calls can also speed things up
+            gc.collect()
 
     # data points with recommended items
     if len(has_rec_idx) > 0:
@@ -182,11 +181,8 @@ def train_one_iteration(batch, tokenizer, model, criterions, accelerator, args):
             recall_targets = torch.LongTensor(recall_true_index).to(accelerator.device)
             loss_recall = criterion_recall(recall_logits, recall_targets)
             all_loss_recall.append(loss_recall.item())
-            
-            # Add recall loss to total
-            total_loss += args.recall_loss_train_coeff * loss_recall
-
-            # language loss in recall turn
+            loss_recall = args.recall_loss_train_coeff * loss_recall
+            # language loss in recall turn, REC_TOKEN, Language on conditional generation
             language_targets_mask = torch.zeros_like(language_targets).float()
             for i in range(batch["context_with_utterances"][has_rec_idx].shape[0]):
                 context_length = batch["context_lengths"][has_rec_idx[i]]
@@ -198,12 +194,15 @@ def train_one_iteration(batch, tokenizer, model, criterions, accelerator, args):
             perplexity = np.exp(min(300, torch.nan_to_num(loss_ppl).item()))
             ppl_history.append(perplexity)
             all_loss_ppl.append(loss_ppl.item())
-            
-            # Add language loss to total
-            total_loss += args.language_loss_train_coeff * loss_ppl
+            loss_ppl = args.language_loss_train_coeff * loss_ppl
+
+            # combined loss for recall + language
+            recall_total_loss = loss_recall + loss_ppl
+            if not (args.tie_sampled_ids_recall_rerank):
+                accelerator.backward(recall_total_loss, retain_graph=True)
 
             del loss_ppl, language_logits, language_targets, loss_recall, recall_logits, recall_targets
-            # gc.collect()
+            gc.collect()
 
             # rerank
             encoded_items_transfer = None
@@ -224,18 +223,15 @@ def train_one_iteration(batch, tokenizer, model, criterions, accelerator, args):
             rerank_targets = torch.LongTensor(rerank_true_index).to(accelerator.device)
             loss_rerank = criterion_rerank_train(rerank_logits, rerank_targets)
             all_loss_rerank.append(loss_rerank.item())
-            
-            # Add rerank loss to total
-            total_loss += args.rerank_loss_train_coeff * loss_rerank
+            loss_rerank = args.rerank_loss_train_coeff * loss_rerank
+            if args.tie_sampled_ids_recall_rerank:
+                accelerator.backward(recall_total_loss + loss_rerank)
+            else:
+                accelerator.backward(loss_rerank)
 
             del loss_rerank, rerank_logits, rerank_targets
-            # gc.collect()
+            gc.collect()
 
-    # SINGLE BACKWARD PASS FOR EVERYTHING
-    if isinstance(total_loss, torch.Tensor):
-        accelerator.backward(total_loss)
-
-    # Handle mean calculation for empty lists (prevents RuntimeWarnings)
     mean_ppl_history = np.mean(ppl_history) if ppl_history else 0.0
     mean_loss_ppl = np.mean(all_loss_ppl) if all_loss_ppl else 0.0
     mean_loss_recall = np.mean(all_loss_recall) if all_loss_recall else 0.0
