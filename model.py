@@ -41,6 +41,35 @@ class PECRSModel(torch.nn.Module):
         self.item_head_l2 = nn.Linear(self.language_model.config.n_embd, self.language_model.config.n_embd)
         self.weights = nn.Parameter(torch.ones(1024))
 
+    def state_dict(self, *args, **kwargs):
+        """Override to ensure tied weights are saved with both keys."""
+        state = super().state_dict(*args, **kwargs)
+        # Handle tied recall/rerank mappers
+        if self.args.tie_recall_and_rerank:
+            if 'recall_item_wte_mapper.weight' in state and 'rerank_item_wte_mapper.weight' not in state:
+                state['rerank_item_wte_mapper.weight'] = state['recall_item_wte_mapper.weight']
+                state['rerank_item_wte_mapper.bias'] = state['recall_item_wte_mapper.bias']
+        # Handle tied lm_head (PEFT/LoRA weight tying)
+        lm_head_key = 'language_model.base_model.model.lm_head.weight'
+        wte_key = 'language_model.base_model.model.transformer.wte.weight'
+        if lm_head_key not in state and wte_key in state:
+            state[lm_head_key] = state[wte_key]
+        return state
+
+    def load_state_dict(self, state_dict, strict=True, **kwargs):
+        """Override to handle tied weights that may be missing from checkpoint."""
+        # Handle tied recall/rerank mappers
+        if self.args.tie_recall_and_rerank:
+            if 'recall_item_wte_mapper.weight' in state_dict and 'rerank_item_wte_mapper.weight' not in state_dict:
+                state_dict['rerank_item_wte_mapper.weight'] = state_dict['recall_item_wte_mapper.weight']
+                state_dict['rerank_item_wte_mapper.bias'] = state_dict['recall_item_wte_mapper.bias']
+        # Handle tied lm_head (PEFT/LoRA weight tying)
+        lm_head_key = 'language_model.base_model.model.lm_head.weight'
+        wte_key = 'language_model.base_model.model.transformer.wte.weight'
+        if lm_head_key not in state_dict and wte_key in state_dict:
+            state_dict[lm_head_key] = state_dict[wte_key]
+        return super().load_state_dict(state_dict, strict=strict, **kwargs)
+
     def get_rec_token_wtes(self):
         rec_token_input_ids = self.tokenizer(self.args.rec_token, return_tensors="pt")["input_ids"].to(self.device)
         return self.language_model.transformer.wte(rec_token_input_ids)
